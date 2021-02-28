@@ -71,12 +71,12 @@ s_whitelist = []
 
 pfx_list = {}
 for rid in sorted(at_list):
-    p1 = [
-        ("# Rule id %s - %s" % (rid, at_list[rid]["msg"])),
-        ("# 'at' list: %s" % str(at_list[rid]["_at"])),
-        ("# uri list: %s" % str(at_list[rid]["uri"]))
-    ]
     if len(at_list[rid]["_at"]) < args.maxargs:
+        p1 = [
+            ("# Rule id %s - %s" % (rid, at_list[rid]["msg"])),
+            ("# 'at' list: %s" % str(at_list[rid]["_at"])),
+            ("# uri list: %s" % str(at_list[rid]["uri"]))
+        ]
         s_upd.extend(p1)
         for arg in sorted(at_list[rid]['_at']):
             s_upd.extend(['SecRuleUpdateTargetById %s "!%s"' % (rid, arg)])
@@ -84,11 +84,11 @@ for rid in sorted(at_list):
     else:
         logging.debug('max_args exceeded for rule id %s: List of ModSecurity "at" %s' %
                       (rid, str(sorted(at_list[rid]["_at"]))))
-        ppfx = []  # type: List[Union[Union[str, unicode], Any]]
+        ppfx = set()  # type: List[Union[Union[str, unicode], Any]]
         for x in at_list[rid]["uri"]:
             p1 = path1(x)
             if p1:
-                ppfx.append(p1)
+                ppfx.add(p1)
         logging.debug('Path prefixes for rule id %s: %s' % (rid, str(ppfx)))
         for path in ppfx:
             pfx_list.setdefault(path, set())
