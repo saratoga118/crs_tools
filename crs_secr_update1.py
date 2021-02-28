@@ -4,13 +4,15 @@ import re
 import argparse
 import logging
 
-from typing import List, Any, Union
+
+# from typing import List, Any, Union
 
 parser = argparse.ArgumentParser(
     prog='crs_secr_update1',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument('--maxargs', type=int, default=5, help='max number of args for target id updated')
 parser.add_argument('--debug', action="store_true", help='Turn on debugging')
+parser.add_argument('--id-start', type=int, default=12001, help='Starting id for white list rules')
 parser.add_argument('file', nargs='*', help='file names')
 args = parser.parse_args()
 
@@ -26,9 +28,18 @@ fld_re = re.compile(r"\[(\w+)\s+\"([^\"]+)(.*)")
 p_re = re.compile(r"^(/[^/]+)/")
 
 
-def path1(s):
+def base_path(s):
     m = p_re.search(s)
-    return m.group(1) if m else ''
+    return m.group(1) if m else '/'
+
+
+def base_path_list(pl):
+    res = set()
+    for elt in pl:
+        p1 = base_path(elt)
+        if p1:
+            res.add(p1)
+    return res
 
 
 def parse_line(modsec_line):
@@ -72,31 +83,31 @@ s_whitelist = []
 pfx_list = {}
 for rid in sorted(at_list):
     if len(at_list[rid]["_at"]) < args.maxargs:
-        p1 = [
+        r_comment = [
             ("# Rule id %s - %s" % (rid, at_list[rid]["msg"])),
             ("# 'at' list: %s" % str(at_list[rid]["_at"])),
-            ("# uri list: %s" % str(at_list[rid]["uri"]))
+            # ("# uri list: %s" % str(at_list[rid]["uri"]))
+            ("# base path list: %s" % base_path_list(at_list[rid]["uri"]))
         ]
-        s_upd.extend(p1)
+        s_upd.extend(r_comment)
         for arg in sorted(at_list[rid]['_at']):
             s_upd.extend(['SecRuleUpdateTargetById %s "!%s"' % (rid, arg)])
         s_upd.extend([""])
     else:
         logging.debug('max_args exceeded for rule id %s: List of ModSecurity "at" %s' %
                       (rid, str(sorted(at_list[rid]["_at"]))))
-        ppfx = set()  # type: List[Union[Union[str, unicode], Any]]
-        for x in at_list[rid]["uri"]:
-            p1 = path1(x)
-            if p1:
-                ppfx.add(p1)
+        ppfx = base_path_list(at_list[rid]["uri"])
         logging.debug('Path prefixes for rule id %s: %s' % (rid, str(ppfx)))
         for path in ppfx:
             pfx_list.setdefault(path, set())
             pfx_list[path].add(rid)
 
+wl_rule_id = args.id_start
 for path in sorted(pfx_list):
     ctll = ",".join(["ctl:ruleRemoveById=%s" % i for i in pfx_list[path]])
-    s_whitelist.extend(['SecRule REQUEST_URI "@beginsWith %s" "phase:1,t:none,pass,nolog,%s"' % (path, ctll)])
+    s_whitelist.extend(['SecRule REQUEST_URI "@beginsWith %s" "id=%i,phase:1,t:none,pass,nolog,%s"' %
+                        (path, wl_rule_id, ctll)])
+    wl_rule_id += 1
 
 print('')
 print("# >>>>> White list <<<<<<")
