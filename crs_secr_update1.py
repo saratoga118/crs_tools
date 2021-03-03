@@ -67,11 +67,13 @@ for input_filename in args.file:
             if "id" in r:
                 for rid in r["id"]:
                     at_list.setdefault(rid, {
-                        "msg": r["msg"],
+                        "msg": "",
                         "_at": set(),
                         "uri": set()
                     }
-                                       )
+                    )
+                    if "msg" in r:
+                        at_list[rid]["msg"] = list(r["msg"])[0]
                     if "_at" in r:
                         at_list[rid]["_at"].add(r["_at"])
                     for uri in r["uri"]:
