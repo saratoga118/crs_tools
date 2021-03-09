@@ -23,7 +23,7 @@ logging.debug("maxargs is %i" % args.maxargs)
 
 ms_re = re.compile(r'\bModSecurity:\s')
 # at_re = re.compile(r"\s+(?:at\s+([^.]+)|in\s+(\S+))")
-at_re = re.compile(r'\s+at\s+([^.]+)')
+at_re = re.compile(r'\s+at\s+(.*?)\.\s+\[file')
 fld_re = re.compile(r"\[(\w+)\s+\"([^\"]+)(.*)")
 p_re = re.compile(r"^(/[^/]+)/")
 
@@ -51,7 +51,9 @@ def parse_line(modsec_line):
             m = fld_re.search(modsec_line)
             if m:
                 fld_name, contents, rest = m.groups()
-                res.setdefault(fld_name, set())
+                # res.setdefault(fld_name, set())
+                if fld_name not in res:
+                    res[fld_name] = set()
                 res[fld_name].add(contents)
                 modsec_line = rest
             else:
@@ -82,33 +84,39 @@ for input_filename in args.file:
 s_upd = []
 s_whitelist = []
 
+num_re = re.compile(r"^\d+$")
+
 pfx_list = {}
 for rid in sorted(at_list):
-    if len(at_list[rid]["_at"]) < args.maxargs:
-        r_comment = [
-            ("# Rule id %s - %s" % (rid, at_list[rid]["msg"])),
-            ("# 'at' list: %s" % str(at_list[rid]["_at"])),
-            # ("# uri list: %s" % str(at_list[rid]["uri"]))
-            ("# base path list: %s" % base_path_list(at_list[rid]["uri"]))
-        ]
-        s_upd.extend(r_comment)
-        for arg in sorted(at_list[rid]['_at']):
-            s_upd.extend(['SecRuleUpdateTargetById %s "!%s"' % (rid, arg)])
-        s_upd.extend([""])
+    num_match = num_re.search(rid)
+    if num_match:
+        if len(at_list[rid]["_at"]) < args.maxargs:
+            r_comment = [
+                ("# Rule id %s - %s" % (rid, at_list[rid]["msg"])),
+                ("# 'at' list: %s" % str(at_list[rid]["_at"])),
+                # ("# uri list: %s" % str(at_list[rid]["uri"]))
+                ("# base path list: %s" % base_path_list(at_list[rid]["uri"]))
+            ]
+            s_upd.extend(r_comment)
+            for arg in sorted(at_list[rid]['_at']):
+                s_upd.extend(['SecRuleUpdateTargetById %s "!%s"' % (rid, arg)])
+            s_upd.extend([""])
+        else:
+            logging.debug('max_args exceeded for rule id %s: List of ModSecurity "at" %s' %
+                          (rid, str(sorted(at_list[rid]["_at"]))))
+            path_prefix = base_path_list(at_list[rid]["uri"])
+            logging.debug('Path prefixes for rule id %s: %s' % (rid, str(path_prefix)))
+            for path in path_prefix:
+                pfx_list.setdefault(path, set())
+                pfx_list[path].add(rid)
     else:
-        logging.debug('max_args exceeded for rule id %s: List of ModSecurity "at" %s' %
-                      (rid, str(sorted(at_list[rid]["_at"]))))
-        ppfx = base_path_list(at_list[rid]["uri"])
-        logging.debug('Path prefixes for rule id %s: %s' % (rid, str(ppfx)))
-        for path in ppfx:
-            pfx_list.setdefault(path, set())
-            pfx_list[path].add(rid)
+        logging.warning("Ignoring non-numeric rule id '%s'" % rid)
 
 wl_rule_id = args.id_start
 for path in sorted(pfx_list):
-    ctll = ",".join(["ctl:ruleRemoveById=%s" % i for i in pfx_list[path]])
+    ctl_list = ",".join(["ctl:ruleRemoveById=%s" % i for i in pfx_list[path]])
     s_whitelist.extend(['SecRule REQUEST_URI "@beginsWith %s" "id=%i,phase:1,t:none,pass,nolog,%s"' %
-                        (path, wl_rule_id, ctll)])
+                        (path, wl_rule_id, ctl_list)])
     wl_rule_id += 1
 
 print('')
