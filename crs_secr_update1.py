@@ -115,15 +115,15 @@ for rid in sorted(at_list):
 wl_rule_id = args.id_start
 for path in sorted(pfx_list):
     ctl_list = "," . join(["\\\n    ctl:ruleRemoveById=%s" % i for i in sorted(pfx_list[path])])
-    s_whitelist.extend(['SecRule REQUEST_URI "@beginsWith %s" "id:\'%i\',phase:1,t:none,pass,nolog,%s"' %
+    s_whitelist.extend(['SecRule REQUEST_URI "@beginsWith %s" "id:\'%i\',phase:1,t:none,pass,nolog,%s"\n' %
                         (path, wl_rule_id, ctl_list)])
     wl_rule_id += 1
 
 print('')
 print("# >>>>> White list <<<<<<")
-print("# to be inserted in config file *before* ModSecurity rule file includes")
+print("# to be inserted in config file *before* ModSecurity rule file includes\n")
 
-for line in s_whitelist:
+for line in sorted(s_whitelist):
     print(line)
 print('')
 
