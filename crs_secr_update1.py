@@ -114,8 +114,8 @@ for rid in sorted(at_list):
 
 wl_rule_id = args.id_start
 for path in sorted(pfx_list):
-    ctl_list = ",".join(["ctl:ruleRemoveById=%s" % i for i in pfx_list[path]])
-    s_whitelist.extend(['SecRule REQUEST_URI "@beginsWith %s" "id=%i,phase:1,t:none,pass,nolog,%s"' %
+    ctl_list = "," . join(["\\\n    ctl:ruleRemoveById=%s" % i for i in sorted(pfx_list[path])])
+    s_whitelist.extend(['SecRule REQUEST_URI "@beginsWith %s" "id:\'%i\',phase:1,t:none,pass,nolog,%s"' %
                         (path, wl_rule_id, ctl_list)])
     wl_rule_id += 1
 
