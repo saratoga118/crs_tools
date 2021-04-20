@@ -23,7 +23,20 @@ logging.debug("maxargs is %i" % args.maxargs)
 
 ms_re = re.compile(r'\bModSecurity:\s')
 # at_re = re.compile(r"\s+(?:at\s+([^.]+)|in\s+(\S+))")
-at_re = re.compile(r'\s+at\s+(.*?)\.\s+\[file')
+
+# Style with "against variable":
+
+# Modsecurity: Rule Id: 942421 phase: 2 * Match, but no disruptive action: ModSecurity: Warning. Matched "Operator
+# `Rx' with parameter `((?:[~!@#\$%\^&\*\(\)\-\+=\{\}\[\]\|:;\"'\xc2\xb4\xe2\x80\x99\xe2\x80\x98`<>][^~!@#\$%\^&\*\(
+# \)\-\+=\{\}\[\]\|:;\"'\xc2\xb4\xe2\x80\x99\xe2\x80\x98`<>]*?){3})' against variable `REQUEST_COOKIES:DEA_vertrag' (
+# Value: `J17106||en|||||100000000||||8515||Response_18f1ca847fe1aa7cc4fcbd24624ffac98f685f70|||||||||||nnnnoo (52
+# characters omitted)' ) [file ...
+
+at_re_list = [
+    re.compile(r'\s+at\s+(.*?)\.\s+\[file'),
+    re.compile(r"\s+against\s+variable\s+`([^']+)")
+]
+
 fld_re = re.compile(r"\[(\w+)\s+\"([^\"]+)(.*)")
 p_re = re.compile(r"^(/[^/]+)/")
 
@@ -44,6 +57,7 @@ def base_path_list(pl):
 
 def parse_line(modsec_line):
     res = {}
+    for at_re in at_re_list:
     m = at_re.search(modsec_line)
     if m:
         res["_at"] = m.group(1)
