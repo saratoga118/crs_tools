@@ -77,7 +77,7 @@ def parse_fields_re(line):
             line = rest
         else:
             line = ''
-
+    return res
 
 def parse_fields_str(line):
     res = {}
@@ -98,10 +98,11 @@ def parse_fields_str(line):
                 res[fld] = set()
             res[fld].add(val)
         else:
-            #logging.warning("unexpected number of fields: " + str(li))
+            # logging.warning("unexpected number of fields: " + str(li))
             pass
         line = line[1+tok_end:]
     return res
+
 
 if args.parse_method == "re":
     parse_fields = parse_fields_re
@@ -121,6 +122,7 @@ real	0m30.690s
 user	0m30.381s
 sys	0m0.249s
 """
+
 
 def parse_line(modsec_line):
     res = {}
