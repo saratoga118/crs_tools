@@ -7,22 +7,28 @@ import logging
 
 # from typing import List, Any, Union
 
+parse_method_selector = ["re", "str"]
+def parse_method(s):
+    if s not in parse_method_selector:
+        raise ValueError("Parse method must be in: "+str(parse_method_selector))
+    return s
+
 parser = argparse.ArgumentParser(
     prog='crs_secr_update1',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--maxargs', type=int, default=15, help='max number of args for target id updated')
+parser.add_argument('--max-rule-vars', type=int, default=15, help='max number of args for target id updated')
 parser.add_argument('--debug', action="store_true", help='Turn on debugging')
 parser.add_argument('--id-start', type=int, default=12001, help='Starting id for white list rules')
+parser.add_argument('--parse-method', type=parse_method, default="re", help='Parsing method: "str" or "re"')
 parser.add_argument('file', nargs='*', help='file names')
 args = parser.parse_args()
 
 if args.debug:
     logging.basicConfig(level=logging.DEBUG)
 
-logging.debug("maxargs is %i" % args.maxargs)
+logging.debug("max_rule_vars is %i" % args.max_rule_vars)
 
-ms_re = re.compile(r'\bModSecurity:\s')
-# at_re = re.compile(r"\s+(?:at\s+([^.]+)|in\s+(\S+))")
+ms_re = re.compile(r'\bModSecurity:\s+(.*)')
 re_well_formed_args = re.compile(r"^[\w_-]+([:\w_-]+)?$")
 
 wl_rule_incr = 10
@@ -36,8 +42,8 @@ wl_rule_incr = 10
 # characters omitted)' ) [file ...
 
 at_re_list = [
-    re.compile(r'\s+at\s+(.*?)\.\s+\[file'),
-    re.compile(r"\s+against\s+variable\s+`([^']+)")
+    re.compile(r'\s+at\s+(.*?)\.\s+(\[.*)'),
+    re.compile(r"\s+against\s+variable\s+`([^']+)(.*)")
 ]
 
 fld_re = re.compile(r"\[(\w+)\s+\"([^\"]+)(.*)")
@@ -58,27 +64,79 @@ def base_path_list(pl):
     return res
 
 
+def parse_fields_re(line):
+    res = {}
+    while line:
+        m_at = fld_re.search(line)
+        if m_at:
+            fld_name, contents, rest = m_at.groups()
+            # res.setdefault(fld_name, set())
+            if fld_name not in res:
+                res[fld_name] = set()
+            res[fld_name].add(contents)
+            line = rest
+        else:
+            line = ''
+
+
+def parse_fields_str(line):
+    res = {}
+    while line:
+        tok_start = line.find("[")
+        if tok_start < 0:
+            return res
+        tok_end = line.find("]")
+        if tok_end < 0:
+            return res
+        b = line[tok_start + 1:tok_end]
+        li = b.split(" ", 1)
+        if len(li) == 2:
+            fld, val = li
+            if val[0] == '"':
+                val = val[1:-1]
+            if fld not in res:
+                res[fld] = set()
+            res[fld].add(val)
+        else:
+            #logging.warning("unexpected number of fields: " + str(li))
+            pass
+        line = line[1+tok_end:]
+    return res
+
+if args.parse_method == "re":
+    parse_fields = parse_fields_re
+else:
+    parse_fields = parse_fields_str
+logging.debug("parse_fields method: "+str(parse_fields))
+
+"""
+Which method is faster: 
+for f in str re; do   outf=$f.res; rm -f $outf; time ./crs_secr_update1.py --debug  --max 20 --parse=$f  bigfile  >$outf 2>&1 ;done
+
+real	0m35.022s
+user	0m34.569s
+sys	0m0.301s
+
+real	0m30.690s
+user	0m30.381s
+sys	0m0.249s
+"""
+
 def parse_line(modsec_line):
     res = {}
     for at_re in at_re_list:
         m_at = at_re.search(modsec_line)
         if m_at:
             res["_at"] = m_at.group(1)
-            while modsec_line:
-                m_at = fld_re.search(modsec_line)
-                if m_at:
-                    fld_name, contents, rest = m_at.groups()
-                    # res.setdefault(fld_name, set())
-                    if fld_name not in res:
-                        res[fld_name] = set()
-                    res[fld_name].add(contents)
-                    modsec_line = rest
-                else:
-                    modsec_line = ''
+            r = parse_fields(m_at.group(2))
+            if r:
+                for i in r:
+                    res[i] = r[i]
     return res
 
 
 at_list = {}
+rid_msg = {}
 for input_filename in args.file:
     with open(input_filename) as infile:
         for line in infile:
@@ -93,12 +151,14 @@ for input_filename in args.file:
                     )
                     if "msg" in r:
                         at_list[rid]["msg"] = list(r["msg"])[0]
+                        rid_msg[rid] = r["msg"]
                     if "_at" in r:
                         at_list[rid]["_at"].add(r["_at"])
+                    if "tag" in r:
+                        pass
                     for uri in r["uri"]:
                         at_list[rid]["uri"].add(uri)
 
-l_upd = []
 d_update = {}
 l_whitelist = []
 s_disabled = set()
@@ -119,7 +179,7 @@ l_upd.extend(r_comment)
 for rid in sorted(at_list):
     num_match = num_re.search(rid)
     if num_match:
-        if len(at_list[rid]["_at"]) < args.maxargs:
+        if len(at_list[rid]["_at"]) < args.max_rule_vars:
             for at in sorted(at_list[rid]["_at"]):
                 m = re_well_formed_args.search(at)
                 if m:
@@ -132,7 +192,7 @@ for rid in sorted(at_list):
                     logging.debug("Disabling rule %s due to ill-formed argument: %s" % (rid, at))
                     s_disabled.add(rid)
         else:
-            logging.debug('max_args exceeded for rule id %s (%i matches): List of ModSecurity "at" %s' %
+            logging.debug('max_rule_vars exceeded for rule id %s (%i matches): List of ModSecurity "at" %s' %
                           (rid, len(at_list[rid]["_at"]), str(sorted(at_list[rid]["_at"]))))
             path_prefix = base_path_list(at_list[rid]["uri"])
             logging.debug('Path prefixes for rule id %s: %s' % (rid, str(path_prefix)))
@@ -148,6 +208,8 @@ num_paths = len(paths)
 rid_paths = {}
 max_rule_path_mentions_factor = 0.7
 
+logging.debug("Paths: "+str(paths))
+logging.debug("Number of paths: %i" % len(paths))
 for path in paths:
     for rid in pfx_list[path]:
         rid_paths.setdefault(rid, set())
@@ -178,15 +240,22 @@ for line in sorted(l_whitelist):
 print('')
 
 print("# >>>>> Excludes <<<<<<")
-print("# to be inserted in config file *after* ModSecurity rule file includes")
+print("# to be inserted in config file *after* ModSecurity rule file includes\n")
+
+
+def print_rid_msg(rid):
+    print("# Ruld id %s: %s" % (rid, rid_msg[rid]))
+
 
 print("# Disabled secrules")
 for rid in sorted(s_disabled):
+    print_rid_msg(rid)
     print("SecRuleRemoveById %s" % rid)
 print('')
 
 print("# Updated secrules")
-for rid in sorted(l_upd):
+for rid in sorted(d_update):
+    print_rid_msg(rid)
     for at in sorted(d_update[rid]):
         print('SecRuleUpdateTargetById %s "!%s"' % (rid, at))
 print('')
