@@ -23,6 +23,8 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--max-rule-vars', type=int, default=15, help='max number of args for target id updated')
 parser.add_argument('--min-arg-matches', type=int, default=5,
                     help='minimum number of hits for a given argument of a rule to be considered for rule udates')
+parser.add_argument('--min-uri-matches', type=int, default=5,
+                    help='minimum number of hits for a given URI of a rule to be considered for rule udates')
 parser.add_argument('--debug', action="store_true", help='Turn on debugging')
 parser.add_argument('--id-start', type=int, default=12001, help='Starting id for white list rules')
 parser.add_argument('--parse-method', type=parse_method, default="re", help='Parsing method: "str" or "re"')
@@ -89,8 +91,6 @@ d_update = {}
 l_whitelist = []
 s_disabled = set()
 
-num_re = re.compile(r"^\d+$")
-
 pfx_list = {}
 
 """
@@ -104,34 +104,38 @@ l_upd.extend(r_comment)
 """
 
 for rid in sorted(at_list):
-    num_match = num_re.search(rid)
-    if num_match:
-        if len(at_list[rid]["_at"]) < args.max_rule_vars:
-            for at in sorted(at_list[rid]["_at"]):
-                if at_list[rid]["_at"][at] >= args.min_arg_matches:
-                    m = re_well_formed_args.search(at)
-                    if m:
-                        d_update.setdefault(rid, set())
-                        d_update[rid].add(at)
-                    else:
-                        """ We want to get rid of strange parameter names like 
-                        FILES:%27Non-ASCII%20in%20Title%20%EF%80%A1%20blabla%20attaboy-en%20.pdf
-                        """
-                        logging.debug("Disabling rule %s due to ill-formed argument: %s" % (rid, at))
-                        s_disabled.add(rid)
+    if len(at_list[rid]["_at"]) < args.max_rule_vars:
+        for at in sorted(at_list[rid]["_at"]):
+            if at_list[rid]["_at"][at] >= args.min_arg_matches:
+                m = re_well_formed_args.search(at)
+                if m:
+                    d_update.setdefault(rid, set())
+                    d_update[rid].add(at)
                 else:
-                    logging.debug("rid '%s', arg '%s': Ingoring due to insufficient hits (%i)" %
-                                  (rid, at, at_list[rid]["_at"][at]))
-        else:
-            logging.debug('max_rule_vars exceeded for rule id %s (%i matches): List of ModSecurity "at" %s' %
-                          (rid, len(at_list[rid]["_at"]), str(sorted(at_list[rid]["_at"]))))
-            path_prefix = base_path_list(at_list[rid]["uri"])
-            logging.debug('Path prefixes for rule id %s: %s' % (rid, str(path_prefix)))
-            for path in path_prefix:
-                pfx_list.setdefault(path, set())
-                pfx_list[path].add(rid)
+                    """ We want to get rid of strange parameter names like 
+                    FILES:%27Non-ASCII%20in%20Title%20%EF%80%A1%20blabla%20attaboy-en%20.pdf
+                    """
+                    logging.debug("Disabling rule %s due to ill-formed argument: %s" % (rid, at))
+                    s_disabled.add(rid)
+            else:
+                logging.debug("rid '%s', arg '%s': Ignoring due to insufficient argument hits (%i)" %
+                              (rid, at, at_list[rid]["_at"][at]))
     else:
-        logging.warning("Ignoring non-numeric rule id '%s'" % rid)
+        """ Too many different ARGS for given ruleid. Creating an exception based on the path
+        """
+        logging.debug('max_rule_vars exceeded for rule id %s (%i matches): List of args %s' %
+                      (rid, len(at_list[rid]["_at"]), str(sorted(at_list[rid]["_at"]))))
+        for uri in sorted(at_list[rid]["uri"]):
+            hits = at_list[rid]["uri"][uri]
+            if hits >= args.min_uri_matches:
+                path_prefix = base_path_list(at_list[rid]["uri"])
+                logging.debug('Path prefixes for rule id %s: %s' % (rid, str(path_prefix)))
+                for path in path_prefix:
+                    pfx_list.setdefault(path, set())
+                    pfx_list[path].add(rid)
+            else:
+                logging.debug("rid '%s', URI '%s': Ignoring due to insufficient URI hits (%i)" %
+                              (rid, uri, hits))
 
 # Determine ruleid's that occur in a large number of the path prefixes
 paths = sorted(list(pfx_list))
