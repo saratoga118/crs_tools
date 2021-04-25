@@ -54,6 +54,13 @@ set_parse_method(args.parse_method)
 
 at_list = {}
 rid_msg = {}
+paranoia_level = {}
+
+
+def get_paranoia_level(r):
+    return paranoia_level.get(r, "__undef__")
+
+
 for input_filename in args.file:
     with open(input_filename) as infile:
         for line in infile:
@@ -68,12 +75,15 @@ for input_filename in args.file:
                     )
                     if "msg" in r:
                         at_list[rid]["msg"] = list(r["msg"])[0]
-                        rid_msg[rid] = r["msg"]
+                        rid_msg[rid] = list(r["msg"])[0]
                     if "_at" in r:
                         at_list[rid]["_at"].setdefault(r["_at"], 0)
                         at_list[rid]["_at"][r["_at"]] += 1
                     if "tag" in r:
-                        pass
+                        for t in r["tag"]:
+                            if 0 == t.find("paranoia-level"):
+                                _, plevel = t.split("/")
+                                paranoia_level[rid] = plevel.split(" ")[0]
                     for uri in r["uri"]:
                         at_list[rid]["uri"].setdefault(uri, 0)
                         at_list[rid]["uri"][uri] += 1
@@ -150,7 +160,8 @@ for rid in sorted(rid_paths):
                       (rid, len(rid_paths[rid]), len(paths)))
         s_disabled.add(rid)
         for path in pfx_list:
-            pfx_list[path].remove(rid)
+            if rid in pfx_list[path]:
+                pfx_list[path].remove(rid)
 
 wl_rule_id = args.id_start
 for path in sorted(pfx_list):
@@ -173,13 +184,13 @@ print("# to be inserted in config file *after* ModSecurity rule file includes\n"
 
 
 def print_rid_msg(rid):
-    print("# Ruld id %s: %s" % (rid, rid_msg[rid]))
+    print("# Ruld id %s: %s; paranoia level %s" % (rid, rid_msg[rid], get_paranoia_level(rid)))
 
 
 print("# Disabled secrules")
 for rid in sorted(s_disabled):
     print_rid_msg(rid)
-    print("SecRuleRemoveById %s" % rid)
+    print("SecRuleRemoveById %s\n" % rid)
 print('')
 
 print("# Updated secrules")
