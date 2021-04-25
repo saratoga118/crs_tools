@@ -50,15 +50,6 @@ def base_path(s):
     return m_p.group(1) if m_p else '/'
 
 
-def base_path_list(pl):
-    res = set()
-    for elt in pl:
-        p1 = base_path(elt)
-        if p1:
-            res.add(p1)
-    return res
-
-
 set_parse_method(args.parse_method)
 
 at_list = {}
@@ -125,17 +116,20 @@ for rid in sorted(at_list):
         """
         logging.debug('max_rule_vars exceeded for rule id %s (%i matches): List of args %s' %
                       (rid, len(at_list[rid]["_at"]), str(sorted(at_list[rid]["_at"]))))
-        for uri in sorted(at_list[rid]["uri"]):
-            hits = at_list[rid]["uri"][uri]
+        base_path_hits = {}
+        for uri in at_list[rid]["uri"]:
+            bp = base_path(uri)
+            if bp not in base_path_hits:
+                base_path_hits[bp] = 0
+            base_path_hits[bp] += 1
+        for bp in base_path_hits:
+            hits = base_path_hits[bp]
             if hits >= args.min_uri_matches:
-                path_prefix = base_path_list(at_list[rid]["uri"])
-                logging.debug('Path prefixes for rule id %s: %s' % (rid, str(path_prefix)))
-                for path in path_prefix:
-                    pfx_list.setdefault(path, set())
-                    pfx_list[path].add(rid)
+                pfx_list.setdefault(bp, set())
+                pfx_list[bp].add(rid)
             else:
-                logging.debug("rid '%s', URI '%s': Ignoring due to insufficient URI hits (%i)" %
-                              (rid, uri, hits))
+                logging.debug("rid '%s', URI '%s': Ignoring due to insufficient base path hits (%i)" %
+                              (rid, bp, hits))
 
 # Determine ruleid's that occur in a large number of the path prefixes
 paths = sorted(list(pfx_list))
@@ -143,8 +137,8 @@ num_paths = len(paths)
 rid_paths = {}
 max_rule_path_mentions_factor = 0.7
 
-logging.debug("Paths: "+str(paths))
-logging.debug("Number of paths: %i" % len(paths))
+# logging.debug("Paths: "+str(paths))
+# logging.debug("Number of paths: %i" % len(paths))
 for path in paths:
     for rid in pfx_list[path]:
         rid_paths.setdefault(rid, set())
