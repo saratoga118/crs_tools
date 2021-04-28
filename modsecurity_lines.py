@@ -1,7 +1,6 @@
 import logging
 import re
 
-fld_re = re.compile(r"\[(\w+)\s+\"([^\"]+)(.*)")
 
 # Style with "against variable":
 
@@ -23,19 +22,20 @@ def parse_line(modsec_line):
         m_at = at_re.search(modsec_line)
         if m_at:
             res["_at"] = m_at.group(1)
-            r = parse_fields(m_at.group(2))
-            if r:
-                for i in r:
-                    res[i] = r[i]
+    r = parse_fields(modsec_line)
+    if r:
+        for i in r:
+            res[i] = r[i]
     return res
 
+fld_re = re.compile(r'\s\[(\w+)\s+"(.*?)"\](.*)')
 
-def parse_fields_re(line):
+def parse_fields(line):
     res = {}
     while line:
-        m_at = fld_re.search(line)
-        if m_at:
-            fld_name, contents, rest = m_at.groups()
+        m_fld = fld_re.search(line)
+        if m_fld:
+            fld_name, contents, rest = m_fld.groups()
             # res.setdefault(fld_name, set())
             if fld_name not in res:
                 res[fld_name] = set()
@@ -45,7 +45,7 @@ def parse_fields_re(line):
             line = ''
     return res
 
-
+"""
 def parse_fields_str(line):
     res = {}
     while line:
@@ -69,13 +69,5 @@ def parse_fields_str(line):
             pass
         line = line[1+tok_end:]
     return res
+"""
 
-
-parse_fields = parse_fields_str
-
-
-def set_parse_method(meth):
-    global parse_fields
-    if meth == "re":
-        parse_fields = parse_fields_re
-    logging.debug("parse_fields method: "+str(parse_fields))

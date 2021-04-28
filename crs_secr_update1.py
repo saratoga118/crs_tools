@@ -6,15 +6,7 @@ import logging
 
 
 # from typing import List, Any, Union
-from modsecurity_lines import parse_line, set_parse_method
-
-parse_method_selector = ["re", "str"]
-
-
-def parse_method(s):
-    if s not in parse_method_selector:
-        raise ValueError("Parse method must be in: "+str(parse_method_selector))
-    return s
+from modsecurity_lines import parse_line
 
 
 parser = argparse.ArgumentParser(
@@ -29,7 +21,6 @@ parser.add_argument('--debug', action="store_true", help='Turn on debugging')
 parser.add_argument('--id-start', type=int, default=12001, help='Starting id for white list rules')
 parser.add_argument('--base-path-tokens', type=int, default=1, help='Number of directory path elements for per '
                                                                     'directory rules')
-parser.add_argument('--parse-method', type=parse_method, default="re", help='Parsing method: "str" or "re"')
 parser.add_argument('file', nargs='*', help='file names')
 args = parser.parse_args()
 
@@ -41,6 +32,13 @@ logging.debug("max_rule_vars is %i" % args.max_rule_vars)
 ms_re = re.compile(r'\bModSecurity:\s+(.*)')
 re_well_formed_args = re.compile(r"^[\w_-]+([:\w_-]+)?$")
 
+good_uri_re = re.compile(r"^/[\w/.-]*$")
+
+
+def well_formed_uri(path):
+    return good_uri_re.search(path)
+
+
 wl_rule_incr = 10
 
 
@@ -51,8 +49,6 @@ def base_path(s):
     m_p = p_re.search(s)
     return m_p.group(1) if m_p else '/'
 
-
-set_parse_method(args.parse_method)
 
 at_list = {}
 rid_msg = {}
@@ -66,29 +62,38 @@ def get_paranoia_level(r):
 for input_filename in args.file:
     with open(input_filename) as infile:
         for line in infile:
-            r = parse_line(line)
-            if "id" in r:
-                for rid in r["id"]:
-                    at_list.setdefault(rid, {
-                        "msg": "",
-                        "_at": {},
-                        "uri": {}
-                    }
-                    )
-                    if "msg" in r:
-                        at_list[rid]["msg"] = list(r["msg"])[0]
-                        rid_msg[rid] = list(r["msg"])[0]
-                    if "_at" in r:
-                        at_list[rid]["_at"].setdefault(r["_at"], 0)
-                        at_list[rid]["_at"][r["_at"]] += 1
-                    if "tag" in r:
-                        for t in r["tag"]:
-                            if 0 == t.find("paranoia-level"):
-                                _, plevel = t.split("/")
-                                paranoia_level[rid] = plevel.split(" ")[0]
+            if line.lower().find("modsecurity:") > 0:
+                r = parse_line(line)
+                ignore = False
+                if "uri" in r:
                     for uri in r["uri"]:
-                        at_list[rid]["uri"].setdefault(uri, 0)
-                        at_list[rid]["uri"][uri] += 1
+                        if not well_formed_uri(uri):
+                            logging.debug("Ignoring ill-formed URI '%s'" % uri)
+                            ignore = True
+                else:
+                    logging.debug("line without 'uri': %s" % line)
+                if not ignore:
+                    if "id" in r:
+                        for rid in r["id"]:
+                            at_list.setdefault(rid, {
+                                "msg": "",
+                                "_at": {},
+                                "uri": {}
+                            }
+                            )
+                            if "msg" in r:
+                                rid_msg[rid] = list(r["msg"])[0]
+                            if "_at" in r:
+                                at_list[rid]["_at"].setdefault(r["_at"], 0)
+                                at_list[rid]["_at"][r["_at"]] += 1
+                            if "tag" in r:
+                                for t in r["tag"]:
+                                    if 0 == t.find("paranoia-level"):
+                                        _, plevel = t.split("/")
+                                        paranoia_level[rid] = plevel.split(" ")[0]
+                            for uri in r["uri"]:
+                                at_list[rid]["uri"].setdefault(uri, 0)
+                                at_list[rid]["uri"][uri] += 1
 
 d_update = {}
 l_whitelist = []
