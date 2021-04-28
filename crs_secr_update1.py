@@ -27,6 +27,8 @@ parser.add_argument('--min-uri-matches', type=int, default=5,
                     help='minimum number of hits for a given URI of a rule to be considered for rule udates')
 parser.add_argument('--debug', action="store_true", help='Turn on debugging')
 parser.add_argument('--id-start', type=int, default=12001, help='Starting id for white list rules')
+parser.add_argument('--base-path-tokens', type=int, default=1, help='Number of directory path elements for per '
+                                                                    'directory rules')
 parser.add_argument('--parse-method', type=parse_method, default="re", help='Parsing method: "str" or "re"')
 parser.add_argument('file', nargs='*', help='file names')
 args = parser.parse_args()
@@ -42,7 +44,7 @@ re_well_formed_args = re.compile(r"^[\w_-]+([:\w_-]+)?$")
 wl_rule_incr = 10
 
 
-p_re = re.compile(r"^(/[^/]+)/")
+p_re = re.compile(r"^((/[^/]+){1,%i})/" % args.base_path_tokens)
 
 
 def base_path(s):
@@ -105,7 +107,7 @@ l_upd.extend(r_comment)
 """
 
 for rid in sorted(at_list):
-    if len(at_list[rid]["_at"]) < args.max_rule_vars:
+    if len(at_list[rid]["_at"]) <= args.max_rule_vars:
         for at in sorted(at_list[rid]["_at"]):
             if at_list[rid]["_at"][at] >= args.min_arg_matches:
                 m = re_well_formed_args.search(at)
@@ -116,7 +118,7 @@ for rid in sorted(at_list):
                     """ We want to get rid of strange parameter names like 
                     FILES:%27Non-ASCII%20in%20Title%20%EF%80%A1%20blabla%20attaboy-en%20.pdf
                     """
-                    logging.debug("Disabling rule %s due to ill-formed argument: %s" % (rid, at))
+                    logging.debug("Disabling rule '%s' due to ill-formed argument: '%s'" % (rid, at))
                     s_disabled.add(rid)
             else:
                 logging.debug("rid '%s', arg '%s': Ignoring due to insufficient argument hits (%i)" %
@@ -124,7 +126,7 @@ for rid in sorted(at_list):
     else:
         """ Too many different ARGS for given ruleid. Creating an exception based on the path
         """
-        logging.debug('max_rule_vars exceeded for rule id %s (%i matches): List of args %s' %
+        logging.debug("max_rule_vars exceeded for rule id '%s' (%i matches): List of args %s" %
                       (rid, len(at_list[rid]["_at"]), str(sorted(at_list[rid]["_at"]))))
         base_path_hits = {}
         for uri in at_list[rid]["uri"]:
@@ -184,7 +186,7 @@ print("# to be inserted in config file *after* ModSecurity rule file includes\n"
 
 
 def print_rid_msg(rid):
-    print("# Ruld id %s: %s; paranoia level %s" % (rid, rid_msg[rid], get_paranoia_level(rid)))
+    print("# Rule id %s: %s; paranoia level %s" % (rid, rid_msg[rid], get_paranoia_level(rid)))
 
 
 print("# Disabled secrules")
