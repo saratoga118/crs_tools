@@ -28,6 +28,10 @@ if args.debug:
     logging.basicConfig(level=logging.DEBUG)
 
 logging.debug("max_rule_vars is %i" % args.max_rule_vars)
+logging.debug("min_arg_matches is %i" % args.min_arg_matches)
+logging.debug("min_uri_matches is %i" % args.min_uri_matches)
+logging.debug("base_path_tokens is %i" % args.base_path_tokens)
+logging.debug("id_start is %i" % args.id_start)
 
 ms_re = re.compile(r'\bModSecurity:\s+(.*)')
 re_well_formed_args = re.compile(r"^[\w_-]+([:\w_-]+)?$")
@@ -59,6 +63,9 @@ def get_paranoia_level(r):
     return paranoia_level.get(r, "__undef__")
 
 
+ill_formed_notified = set()
+
+
 for input_filename in args.file:
     with open(input_filename) as infile:
         for line in infile:
@@ -68,7 +75,9 @@ for input_filename in args.file:
                 if "uri" in r:
                     for uri in r["uri"]:
                         if not well_formed_uri(uri):
-                            logging.debug("Ignoring ill-formed URI '%s'" % uri)
+                            if uri not in ill_formed_notified:
+                                logging.debug("Ignoring ill-formed URI '%s'" % uri)
+                                ill_formed_notified.add(uri)
                             ignore = True
                 else:
                     logging.debug("line without 'uri': %s" % line)
