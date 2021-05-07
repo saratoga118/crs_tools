@@ -1,3 +1,6 @@
 /bad_args.txt
 /out
 /f
+.DS_Store
+*.pyc
+*.log
