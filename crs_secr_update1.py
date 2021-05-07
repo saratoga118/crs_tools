@@ -5,6 +5,8 @@ import logging
 import re
 
 # from typing import List, Any, Union
+from typing import Dict, Any
+
 from modsecurity_lines import parse_line
 
 parser = argparse.ArgumentParser(
@@ -51,7 +53,7 @@ def base_path(s):
     return m_p.group(1) if m_p else '/'
 
 
-at_list = {}
+attr_list: dict[Any, Any] = {}
 rid_msg = {}
 paranoia_level = {}
 
@@ -80,25 +82,28 @@ for input_filename in args.file:
                 if not ignore:
                     if "id" in r:
                         for rid in r["id"]:
-                            at_list.setdefault(rid, {
+                            attr_list.setdefault(rid, {
                                 "msg": "",
                                 "_at": {},
                                 "uri": {}
                             }
-                                               )
+                                                 )
                             if "msg" in r:
-                                rid_msg[rid] = list(r["msg"])[0]
+                                if rid not in rid_msg:
+                                    rid_msg[rid] = list(r["msg"])[0]
                             if "_at" in r:
-                                at_list[rid]["_at"].setdefault(r["_at"], 0)
-                                at_list[rid]["_at"][r["_at"]] += 1
+                                attr_list[rid]["_at"].setdefault(r["_at"], 0)
+                                attr_list[rid]["_at"][r["_at"]] += 1
                             if "tag" in r:
                                 for t in r["tag"]:
                                     if 0 == t.find("paranoia-level"):
                                         _, plevel = t.split("/")
                                         paranoia_level[rid] = plevel.split(" ")[0]
                             for uri in r["uri"]:
-                                at_list[rid]["uri"].setdefault(uri, 0)
-                                at_list[rid]["uri"][uri] += 1
+                                attr_list[rid]["uri"].setdefault(uri, 0)
+                                attr_list[rid]["uri"][uri] += 1
+                    else:
+                        logging.debug("Line with id: %s" % line)
 
 d_update = {}
 l_whitelist = []
@@ -108,18 +113,18 @@ pfx_list = {}
 
 """
 r_comment = [
-    ("# Rule id %s - %s" % (rid, at_list[rid]["msg"])),
-    ("# 'at' list: %s" % str(at_list[rid]["_at"])),
-    # ("# uri list: %s" % str(at_list[rid]["uri"]))
-    ("# base path list: %s" % base_path_list(at_list[rid]["uri"]))
+    ("# Rule id %s - %s" % (rid, attr_list[rid]["msg"])),
+    ("# 'at' list: %s" % str(attr_list[rid]["_at"])),
+    # ("# uri list: %s" % str(attr_list[rid]["uri"]))
+    ("# base path list: %s" % base_path_list(attr_list[rid]["uri"]))
 ]
 l_upd.extend(r_comment)
 """
 
-for rid in sorted(at_list):
-    if len(at_list[rid]["_at"]) <= args.max_rule_vars:
-        for at in sorted(at_list[rid]["_at"]):
-            if at_list[rid]["_at"][at] >= args.min_arg_matches:
+for rid in sorted(attr_list):
+    if len(attr_list[rid]["_at"]) <= args.max_rule_vars:
+        for at in sorted(attr_list[rid]["_at"]):
+            if attr_list[rid]["_at"][at] >= args.min_arg_matches:
                 m = re_well_formed_args.search(at)
                 if m:
                     d_update.setdefault(rid, set())
@@ -132,14 +137,14 @@ for rid in sorted(at_list):
                     s_disabled.add(rid)
             else:
                 logging.debug("rid '%s', arg '%s': Ignoring due to insufficient argument hits (%i)" %
-                              (rid, at, at_list[rid]["_at"][at]))
+                              (rid, at, attr_list[rid]["_at"][at]))
     else:
         """ Too many different ARGS for given ruleid. Creating an exception based on the path
         """
         logging.debug("max_rule_vars exceeded for rule id '%s' (%i matches): List of args %s" %
-                      (rid, len(at_list[rid]["_at"]), str(sorted(at_list[rid]["_at"]))))
+                      (rid, len(attr_list[rid]["_at"]), str(sorted(attr_list[rid]["_at"]))))
         base_path_hits = {}
-        for uri in at_list[rid]["uri"]:
+        for uri in attr_list[rid]["uri"]:
             bp = base_path(uri)
             if bp not in base_path_hits:
                 base_path_hits[bp] = 0

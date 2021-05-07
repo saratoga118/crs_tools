@@ -1,6 +1,4 @@
-import logging
 import re
-
 
 # Style with "against variable":
 
@@ -28,7 +26,9 @@ def parse_line(modsec_line):
             res[i] = r[i]
     return res
 
+
 fld_re = re.compile(r'\s\[(\w+)\s+"(.*?)"\](.*)')
+
 
 def parse_fields(line):
     res = {}
@@ -44,6 +44,7 @@ def parse_fields(line):
         else:
             line = ''
     return res
+
 
 """
 def parse_fields_str(line):
@@ -70,4 +71,3 @@ def parse_fields_str(line):
         line = line[1+tok_end:]
     return res
 """
-
