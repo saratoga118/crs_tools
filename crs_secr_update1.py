@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 
-import re
 import argparse
 import logging
-
+import re
 
 # from typing import List, Any, Union
 from modsecurity_lines import parse_line
-
 
 parser = argparse.ArgumentParser(
     prog='crs_secr_update1',
@@ -45,7 +43,6 @@ def well_formed_uri(path):
 
 wl_rule_incr = 10
 
-
 p_re = re.compile(r"^((/[^/]+){1,%i})/" % args.base_path_tokens)
 
 
@@ -64,7 +61,6 @@ def get_paranoia_level(r):
 
 
 ill_formed_notified = set()
-
 
 for input_filename in args.file:
     with open(input_filename) as infile:
@@ -89,7 +85,7 @@ for input_filename in args.file:
                                 "_at": {},
                                 "uri": {}
                             }
-                            )
+                                               )
                             if "msg" in r:
                                 rid_msg[rid] = list(r["msg"])[0]
                             if "_at" in r:
@@ -181,7 +177,7 @@ for rid in sorted(rid_paths):
 
 wl_rule_id = args.id_start
 for path in sorted(pfx_list):
-    ctl_list = "," . join(["\\\n    ctl:ruleRemoveById=%s" % i for i in sorted(pfx_list[path])])
+    ctl_list = ",".join(["\\\n    ctl:ruleRemoveById=%s" % i for i in sorted(pfx_list[path])])
     if ctl_list:
         l_whitelist.extend(['SecRule REQUEST_URI "@beginsWith %s" "id:\'%i\',phase:1,t:none,pass,nolog,%s"\n' %
                             (path, wl_rule_id, ctl_list)])
