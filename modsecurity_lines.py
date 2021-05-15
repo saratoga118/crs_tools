@@ -2,7 +2,8 @@ import re
 
 # Style with "against variable":
 
-# Modsecurity: Rule Id: 942421 phase: 2 * Match, but no disruptive action: ModSecurity: Warning. Matched "Operator
+# Modsecurity: Rule Id: 942421 phase: 2 * Match, but no disruptive action: ModSecurity: Warning.
+# Matched "Operator
 # `Rx' with parameter `((?:[~!@#\$%\^&\*\(\)\-\+=\{\}\[\]\|:;\"'\xc2\xb4\xe2\x80\x99\xe2\x80\x98`<>][^~!@#\$%\^&\*\(
 # \)\-\+=\{\}\[\]\|:;\"'\xc2\xb4\xe2\x80\x99\xe2\x80\x98`<>]*?){3})' against variable `REQUEST_COOKIES:DEA_vertrag' (
 # Value: `J17106||en|||||100000000||||8515||Response_18f1ca847fe1aa7cc4fcbd24624ffac98f685f70|||||||||||nnnnoo (52
@@ -27,7 +28,7 @@ def parse_line(modsec_line):
     return res
 
 
-fld_re = re.compile(r'\s\[(\w+)\s+"(.*?)"\](.*)')
+fld_re = re.compile(r'\s\[(\w+)\s+"(.*?)"](.*)')
 
 
 def parse_fields(line):
@@ -46,28 +47,33 @@ def parse_fields(line):
     return res
 
 
-"""
-def parse_fields_str(line):
-    res = {}
-    while line:
-        tok_start = line.find("[")
-        if tok_start < 0:
-            return res
-        tok_end = line.find("]")
-        if tok_end < 0:
-            return res
-        b = line[tok_start + 1:tok_end]
-        li = b.split(" ", 1)
-        if len(li) == 2:
-            fld, val = li
-            if val[0] == '"':
-                val = val[1:-1]
-            if fld not in res:
-                res[fld] = set()
-            res[fld].add(val)
-        else:
-            # logging.warning("unexpected number of fields: " + str(li))
-            pass
-        line = line[1+tok_end:]
-    return res
-"""
+class RuleMatches:
+
+    def __init__(self):
+        self.attr = {}
+        self.uri = {}
+        self.paranoia_level = None
+
+    def add_attr(self, attr):
+        if attr not in self.attr:
+            self.attr[attr] = 0
+        self.attr[attr] += 1
+
+    def get_attrs(self):
+        return self.attr
+
+    def add_uri(self, uri):
+        if uri not in self.uri:
+            self.uri[uri] = 0
+        self.uri[uri] += 1
+
+    def get_uris(self):
+        return self.uri
+
+    def add_tag(self, tag):
+        if 0 == tag.find("paranoia-level"):
+            _, plevel = tag.split("/")
+            self.paranoia_level = plevel.split(" ")[0]
+
+    def get_paranoia_level(self):
+        return self.paranoia_level

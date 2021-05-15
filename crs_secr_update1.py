@@ -7,7 +7,7 @@ import re
 # from typing import List, Any, Union
 from typing import Dict, Any
 
-from modsecurity_lines import parse_line
+import modsecurity_lines
 
 parser = argparse.ArgumentParser(
     prog='crs_secr_update1',
@@ -39,8 +39,8 @@ re_well_formed_args = re.compile(r"^[\w_-]+([:\w_-]+)?$")
 good_uri_re = re.compile(r"^/[\w/.-]*$")
 
 
-def well_formed_uri(path):
-    return good_uri_re.search(path)
+def well_formed_uri(p):
+    return good_uri_re.search(p)
 
 
 wl_rule_incr = 10
@@ -53,22 +53,23 @@ def base_path(s):
     return m_p.group(1) if m_p else '/'
 
 
-attr_list: dict[Any, Any] = {}
+rule_attr_list: dict[Any, Any] = {}
 rid_msg = {}
 paranoia_level = {}
 
 
-def get_paranoia_level(r):
-    return paranoia_level.get(r, "__undef__")
+def get_paranoia_level(pl):
+    return paranoia_level.get(pl, "__undef__")
 
 
 ill_formed_notified = set()
 
 for input_filename in args.file:
+    logging.debug("Processing file %s" % input_filename)
     with open(input_filename) as infile:
         for line in infile:
             if line.lower().find("modsecurity:") > 0:
-                r = parse_line(line)
+                r = modsecurity_lines.parse_line(line)
                 ignore = False
                 if "uri" in r:
                     for uri in r["uri"]:
@@ -78,34 +79,27 @@ for input_filename in args.file:
                                 ill_formed_notified.add(uri)
                             ignore = True
                 else:
-                    logging.debug("line without 'uri': %s" % line)
+                    logging.debug("line without 'uri': %s" % line.rstrip())
                 if not ignore:
                     if "id" in r:
                         for rid in r["id"]:
-                            attr_list.setdefault(rid, {
-                                "msg": "",
-                                "_at": {},
-                                "uri": {}
-                            }
-                                                 )
+                            if rid not in rule_attr_list:
+                                rule_attr_list[rid] = modsecurity_lines.RuleMatches()
+                            cur_rule = rule_attr_list[rid]
                             if "msg" in r:
                                 if rid not in rid_msg:
                                     rid_msg[rid] = list(r["msg"])[0]
                             if "_at" in r:
-                                attr_list[rid]["_at"].setdefault(r["_at"], 0)
-                                attr_list[rid]["_at"][r["_at"]] += 1
+                                cur_rule.add_attr(r["_at"])
                             if "tag" in r:
                                 for t in r["tag"]:
-                                    if 0 == t.find("paranoia-level"):
-                                        _, plevel = t.split("/")
-                                        paranoia_level[rid] = plevel.split(" ")[0]
+                                    cur_rule.add_tag(t)
                             for uri in r["uri"]:
-                                attr_list[rid]["uri"].setdefault(uri, 0)
-                                attr_list[rid]["uri"][uri] += 1
+                                cur_rule.add_uri(uri)
                     else:
-                        logging.debug("Line with id: %s" % line)
+                        logging.debug("Line without id: %s" % line.rstrip())
 
-d_update = {}
+rule_update_dict = {}
 l_whitelist = []
 s_disabled = set()
 
@@ -113,22 +107,23 @@ pfx_list = {}
 
 """
 r_comment = [
-    ("# Rule id %s - %s" % (rid, attr_list[rid]["msg"])),
-    ("# 'at' list: %s" % str(attr_list[rid]["_at"])),
-    # ("# uri list: %s" % str(attr_list[rid]["uri"]))
-    ("# base path list: %s" % base_path_list(attr_list[rid]["uri"]))
+    ("# RuleMatches id %s - %s" % (rid, rule_attr_list[rid]["msg"])),
+    ("# 'at' list: %s" % str(rule_attr_list[rid]["_at"])),
+    # ("# uri list: %s" % str(rule_attr_list[rid]["uri"]))
+    ("# base path list: %s" % base_path_list(rule_attr_list[rid]["uri"]))
 ]
 l_upd.extend(r_comment)
 """
 
-for rid in sorted(attr_list):
-    if len(attr_list[rid]["_at"]) <= args.max_rule_vars:
-        for at in sorted(attr_list[rid]["_at"]):
-            if attr_list[rid]["_at"][at] >= args.min_arg_matches:
+for rid in sorted(rule_attr_list):
+    attrs = rule_attr_list[rid].get_attrs()
+    if len(attrs) <= args.max_rule_vars:
+        for at in sorted(attrs):
+            if attrs[at] >= args.min_arg_matches:
                 m = re_well_formed_args.search(at)
                 if m:
-                    d_update.setdefault(rid, set())
-                    d_update[rid].add(at)
+                    rule_update_dict.setdefault(rid, set())
+                    rule_update_dict[rid].add(at)
                 else:
                     """ We want to get rid of strange parameter names like 
                     FILES:%27Non-ASCII%20in%20Title%20%EF%80%A1%20blabla%20attaboy-en%20.pdf
@@ -137,14 +132,14 @@ for rid in sorted(attr_list):
                     s_disabled.add(rid)
             else:
                 logging.debug("rid '%s', arg '%s': Ignoring due to insufficient argument hits (%i)" %
-                              (rid, at, attr_list[rid]["_at"][at]))
+                              (rid, at, attrs[at]))
     else:
         """ Too many different ARGS for given ruleid. Creating an exception based on the path
         """
         logging.debug("max_rule_vars exceeded for rule id '%s' (%i matches): List of args %s" %
-                      (rid, len(attr_list[rid]["_at"]), str(sorted(attr_list[rid]["_at"]))))
+                      (rid, len(attrs), str(sorted(attrs))))
         base_path_hits = {}
-        for uri in attr_list[rid]["uri"]:
+        for uri in rule_attr_list[rid].get_uris():
             bp = base_path(uri)
             if bp not in base_path_hits:
                 base_path_hits[bp] = 0
@@ -200,8 +195,10 @@ print("# >>>>> Excludes <<<<<<")
 print("# to be inserted in config file *after* ModSecurity rule file includes\n")
 
 
-def print_rid_msg(rid):
-    print("# Rule id %s: %s; paranoia level %s" % (rid, rid_msg[rid], get_paranoia_level(rid)))
+def print_rid_msg(rd):
+    print("# RuleMatches id %s: %s; paranoia level %s" % (rd,
+                                                          rid_msg.get(rd, "__no_msg__"),
+                                                          get_paranoia_level(rd)))
 
 
 print("# Disabled secrules")
@@ -211,9 +208,9 @@ for rid in sorted(s_disabled):
 print('')
 
 print("# Updated secrules")
-for rid in sorted(d_update):
+for rid in sorted(rule_update_dict):
     print_rid_msg(rid)
-    for at in sorted(d_update[rid]):
+    for at in sorted(rule_update_dict[rid]):
         print('SecRuleUpdateTargetById %s "!%s"' % (rid, at))
     print("")
 print('')
