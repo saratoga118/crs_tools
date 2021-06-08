@@ -209,8 +209,9 @@ print('')
 
 print("# Updated secrules")
 for rid in sorted(rule_update_dict):
-    print_rid_msg(rid)
-    for at in sorted(rule_update_dict[rid]):
-        print('SecRuleUpdateTargetById %s "!%s"' % (rid, at))
+    if rid not in s_disabled:
+        print_rid_msg(rid)
+        for at in sorted(rule_update_dict[rid]):
+            print('SecRuleUpdateTargetById %s "!%s"' % (rid, at))
     print("")
 print('')
