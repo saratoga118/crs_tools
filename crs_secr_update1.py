@@ -3,6 +3,7 @@
 import argparse
 import logging
 import re
+import fileinput
 
 # from typing import List, Any, Union
 from typing import Dict, Any
@@ -12,16 +13,23 @@ import modsecurity_lines
 parser = argparse.ArgumentParser(
     prog='crs_secr_update1',
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('--max-rule-vars', type=int, default=15, help='max number of args for target id updated')
+parser.add_argument('--max-rule-vars', type=int, default=15,
+                    help='max number of args for target id updated: If there are more arguments than'
+                    'max-rule-vars, the entire rule is disabled with SecRuleRemoveById')
 parser.add_argument('--min-arg-matches', type=int, default=5,
-                    help='minimum number of hits for a given argument of a rule to be considered for rule udates')
+                    help='minimum number of rule hits for a given argument of a rule to be considered '
+                         'for rule updates. Rules with fewer hits will not cause any SecRule statement '
+                         'to be created.')
 parser.add_argument('--min-uri-matches', type=int, default=5,
                     help='minimum number of hits for a given URI of a rule to be considered for rule udates')
-parser.add_argument('--debug', action="store_true", help='Turn on debugging')
-parser.add_argument('--id-start', type=int, default=12001, help='Starting id for white list rules')
-parser.add_argument('--base-path-tokens', type=int, default=1, help='Number of directory path elements for per '
-                                                                    'directory rules')
-parser.add_argument('file', nargs='*', help='file names')
+parser.add_argument('--debug', action="store_true",
+                    help='Turn on debugging')
+parser.add_argument('--id-start', type=int, default=12001,
+                    help='Starting id for white list rules')
+parser.add_argument('--base-path-tokens', type=int, default=1,
+                    help='Number of directory path elements for per '
+                    'directory rules')
+parser.add_argument('file', nargs='*',  help='file names')
 args = parser.parse_args()
 
 if args.debug:
@@ -64,40 +72,40 @@ def get_paranoia_level(pl):
 
 ill_formed_notified = set()
 
-for input_filename in args.file:
-    logging.debug("Processing file %s" % input_filename)
-    with open(input_filename) as infile:
-        for line in infile:
-            if line.lower().find("modsecurity:") > 0:
-                r = modsecurity_lines.parse_line(line)
-                ignore = False
-                if "uri" in r:
-                    for uri in r["uri"]:
-                        if not well_formed_uri(uri):
-                            if uri not in ill_formed_notified:
-                                logging.debug("Ignoring ill-formed URI '%s'" % uri)
-                                ill_formed_notified.add(uri)
-                            ignore = True
+# with fileinput.input(files=('spam.txt', 'eggs.txt')) as f:
+# for input_filename in args.file:
+with fileinput.input(files=args.file) as infile:
+    for line in infile:
+        if line.lower().find("modsecurity:") > 0:
+            r = modsecurity_lines.parse_line(line)
+            ignore = False
+            if "uri" in r:
+                for uri in r["uri"]:
+                    if not well_formed_uri(uri):
+                        if uri not in ill_formed_notified:
+                            logging.debug("Ignoring ill-formed URI '%s'" % uri)
+                            ill_formed_notified.add(uri)
+                        ignore = True
+            else:
+                logging.debug("line without 'uri': %s" % line.rstrip())
+            if not ignore:
+                if "id" in r:
+                    for rid in r["id"]:
+                        if rid not in rule_attr_list:
+                            rule_attr_list[rid] = modsecurity_lines.RuleMatches()
+                        cur_rule = rule_attr_list[rid]
+                        if "msg" in r:
+                            if rid not in rid_msg:
+                                rid_msg[rid] = list(r["msg"])[0]
+                        if "_at" in r:
+                            cur_rule.add_attr(r["_at"])
+                        if "tag" in r:
+                            for t in r["tag"]:
+                                cur_rule.add_tag(t)
+                        for uri in r["uri"]:
+                            cur_rule.add_uri(uri)
                 else:
-                    logging.debug("line without 'uri': %s" % line.rstrip())
-                if not ignore:
-                    if "id" in r:
-                        for rid in r["id"]:
-                            if rid not in rule_attr_list:
-                                rule_attr_list[rid] = modsecurity_lines.RuleMatches()
-                            cur_rule = rule_attr_list[rid]
-                            if "msg" in r:
-                                if rid not in rid_msg:
-                                    rid_msg[rid] = list(r["msg"])[0]
-                            if "_at" in r:
-                                cur_rule.add_attr(r["_at"])
-                            if "tag" in r:
-                                for t in r["tag"]:
-                                    cur_rule.add_tag(t)
-                            for uri in r["uri"]:
-                                cur_rule.add_uri(uri)
-                    else:
-                        logging.debug("Line without id: %s" % line.rstrip())
+                    logging.debug("Line without id: %s" % line.rstrip())
 
 rule_update_dict = {}
 l_whitelist = []
