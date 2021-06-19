@@ -29,6 +29,8 @@ parser.add_argument('--id-start', type=int, default=12001,
 parser.add_argument('--base-path-tokens', type=int, default=1,
                     help='Number of directory path elements for per '
                     'directory rules')
+parser.add_argument("--force-white-listing", action="store_true",
+                    help="Force the creation of per base path and per RID white listing rules")
 parser.add_argument('file', nargs='*',  help='file names')
 args = parser.parse_args()
 
@@ -39,6 +41,7 @@ logging.debug("max_rule_vars is %i" % args.max_rule_vars)
 logging.debug("min_arg_matches is %i" % args.min_arg_matches)
 logging.debug("min_uri_matches is %i" % args.min_uri_matches)
 logging.debug("base_path_tokens is %i" % args.base_path_tokens)
+logging.debug("force-white-listing is %s" % str(args.force_white_listing))
 logging.debug("id_start is %i" % args.id_start)
 
 ms_re = re.compile(r'\bModSecurity:\s+(.*)')
@@ -64,7 +67,6 @@ def base_path(s):
 rule_attr_list: dict[Any, Any] = {}
 rid_msg = {}
 paranoia_level = {}
-
 
 def get_paranoia_level(pl):
     return paranoia_level.get(pl, "__undef__")
@@ -126,15 +128,33 @@ r_comment = [
 l_upd.extend(r_comment)
 """
 
+wl = {}
+
+
+def add_wl(path, rid, at):
+    if path not in wl:
+        wl[path] = {}
+    if rid not in wl[path]:
+        wl[path][rid] = set()
+    wl[path][rid].add(at)
+
+
 for rid in sorted(rule_attr_list):
     attrs = rule_attr_list[rid].get_attrs()
     if len(attrs) <= args.max_rule_vars:
+        """ The number of attrs found for this rule is small enough to create SecRuleUpdateTargetById
+        """
         for at in sorted(attrs):
             if attrs[at] >= args.min_arg_matches:
                 m = re_well_formed_args.search(at)
                 if m:
-                    rule_update_dict.setdefault(rid, set())
-                    rule_update_dict[rid].add(at)
+                    if not args.force_white_listing:
+                        rule_update_dict.setdefault(rid, set())
+                        rule_update_dict[rid].add(at)
+                    else:
+                        bps = set([base_path(x) for x in rule_attr_list[rid].get_uris()])
+                        for b in bps:
+                            add_wl(b, rid, at)
                 else:
                     """ We want to get rid of strange parameter names like 
                     FILES:%27Non-ASCII%20in%20Title%20%EF%80%A1%20blabla%20attaboy-en%20.pdf
@@ -202,7 +222,20 @@ for line in sorted(l_whitelist):
     print(line)
 print('')
 
-print("# >>>>> Excludes <<<<<<")
+if wl:
+    print("# Begin White listing with URI, rule-id and args")
+    for bp in sorted(wl):
+        for rid in sorted(wl[bp]):
+            for at in sorted(wl[bp][rid]):
+                # See SecRule REQUEST_URI "@beginsWith /index.php/component/users/" "id:5,phase:1,t:none,pass,nolog,
+                # ctl:ruleRemoveTargetById=981318;ARGS:/jform\[password[12]\]/"
+                print('SecRule REQUEST_URI "@beginsWith {path}" "id:{id},phase:1,t:none,pass,nolog,'
+                      'ctl:ruleRemoveTargetById={rid};{at}"'.format(path=bp, id=wl_rule_id, rid=rid, at=at))
+                wl_rule_id += wl_rule_incr
+            print("")
+    print("# End White listing with URI, rule-id and args")
+
+print("\n# >>>>> Excludes <<<<<<")
 print("# to be inserted in config file *after* ModSecurity rule file includes\n")
 
 
