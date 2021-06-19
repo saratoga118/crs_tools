@@ -6,7 +6,7 @@ import re
 import fileinput
 
 # from typing import List, Any, Union
-from typing import Dict, Any
+from typing import Any
 
 import modsecurity_lines
 
@@ -102,6 +102,9 @@ with fileinput.input(files=args.file) as infile:
                         if "tag" in r:
                             for t in r["tag"]:
                                 cur_rule.add_tag(t)
+                            pl = cur_rule.get_paranoia_level()
+                            if pl:
+                                paranoia_level[rid] = pl
                         for uri in r["uri"]:
                             cur_rule.add_uri(uri)
                 else:
@@ -117,8 +120,8 @@ pfx_list = {}
 r_comment = [
     ("# RuleMatches id %s - %s" % (rid, rule_attr_list[rid]["msg"])),
     ("# 'at' list: %s" % str(rule_attr_list[rid]["_at"])),
-    # ("# uri list: %s" % str(rule_attr_list[rid]["uri"]))
-    ("# base path list: %s" % base_path_list(rule_attr_list[rid]["uri"]))
+    # ("# uris list: %s" % str(rule_attr_list[rid]["uris"]))
+    ("# base path list: %s" % base_path_list(rule_attr_list[rid]["uris"]))
 ]
 l_upd.extend(r_comment)
 """
