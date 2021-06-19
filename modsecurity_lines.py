@@ -50,30 +50,35 @@ def parse_fields(line):
 class RuleMatches:
 
     def __init__(self):
-        self.attr = {}
-        self.uri = {}
+        self.attrs = {}
+        self.uris = {}
+        self.tags = set()
         self.paranoia_level = None
 
     def add_attr(self, attr):
-        if attr not in self.attr:
-            self.attr[attr] = 0
-        self.attr[attr] += 1
+        if attr not in self.attrs:
+            self.attrs[attr] = 0
+        self.attrs[attr] += 1
 
     def get_attrs(self):
-        return self.attr
+        return self.attrs
 
     def add_uri(self, uri):
-        if uri not in self.uri:
-            self.uri[uri] = 0
-        self.uri[uri] += 1
+        if uri not in self.uris:
+            self.uris[uri] = 0
+        self.uris[uri] += 1
 
     def get_uris(self):
-        return self.uri
+        return self.uris
 
     def add_tag(self, tag):
+        self.tags.add(tag)
         if 0 == tag.find("paranoia-level"):
             _, plevel = tag.split("/")
             self.paranoia_level = plevel.split(" ")[0]
+
+    def get_tags(self):
+        return self.tags
 
     def get_paranoia_level(self):
         return self.paranoia_level
