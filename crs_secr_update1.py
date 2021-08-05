@@ -4,10 +4,12 @@ import argparse
 import logging
 import re
 import fileinput
+import sys
 
 # from typing import List, Any, Union
 from typing import Any
 
+sys.path.append(".")  # Ugly work-around for ModuleNotFoundError in Win10
 import modsecurity_lines
 
 parser = argparse.ArgumentParser(
@@ -35,6 +37,17 @@ parser.add_argument("--skip-base-path-filtering", action="store_true",
 parser.add_argument("--force-white-listing", action="store_true",
                     help="Force the creation of per base path and per RID white listing rules")
 
+# Not really nice, but see https://stackoverflow.com/questions/15008758/parsing-boolean-values-with-argparse
+parser.add_argument("--arg-name-normalization", action="store_true", default=True,
+                    dest="arg_name_normalization",
+                    help="Force variants of ARGS values with trailing \\d*[:HSX]*$ to be mapped, e.g."
+                    "ARGS:Message3:HSX: will be mapped to ARGS:/Message/")
+parser.add_argument("--no-arg-name-normalization", action="store_false", default=True,
+                    dest="arg_name_normalization",
+                    help="Force variants of ARGS values with trailing \\d*[:HSX]*$ to be mapped, e.g."
+                    "ARGS:Message3:HSX: will be mapped to ARGS:/Message/")
+
+
 
 parser.add_argument('file', nargs='*',  help='file names')
 args = parser.parse_args()
@@ -51,7 +64,7 @@ logging.debug("skip-base-path-filtering is %s" % str(args.skip_base_path_filteri
 logging.debug("id_start is %i" % args.id_start)
 
 ms_re = re.compile(r'\bModSecurity:\s+(.*)')
-re_well_formed_args = re.compile(r"^[\w_-]+([:\w_-]+)?$")
+re_well_formed_args = re.compile(r"^[\w_-]+([/:\w_-]+)?$")
 
 good_uri_re = re.compile(r"^/[\w/.-]*$")
 
@@ -85,6 +98,12 @@ def get_paranoia_level(pl):
     return paranoia_level.get(pl, "__undef__")
 
 
+def print_rid_msg(rd):
+    print("# RuleMatches id %s: %s; paranoia level %s" % (rd,
+                                                          rid_msg.get(rd, "__no_msg__"),
+                                                          get_paranoia_level(rd)))
+
+
 wl = {}
 
 
@@ -98,8 +117,29 @@ def add_wl(path, rid, at):
 
 ill_formed_notified = set()
 
+norm_attr_re = re.compile(r'^(ARGS):(.*?)(\d*[:HSX]*)$')
+
+Do_arg_normalization = args.arg_name_normalization
+
+# This is to get rid of variations of the parameter name like
+# ARGS:Message1:SX: which should have the same processing as ARGS:Message
+
+
+def normalize_attr(attr):
+    if not Do_arg_normalization:
+        return attr
+    else:
+        m = norm_attr_re.search(attr)
+        if m and m.group(3):
+            res = "%s:/%s/" % (m.group(1), m.group(2))
+            logging.debug("Attribute normalization: '%s' to '%s'" % (attr, res))
+            return res
+        else:
+            return attr
+
 # with fileinput.input(files=('spam.txt', 'eggs.txt')) as f:
 # for input_filename in args.file:
+
 with fileinput.input(files=args.file) as infile:
     for line in infile:
         if line.lower().find("modsecurity:") > 0:
@@ -124,7 +164,8 @@ with fileinput.input(files=args.file) as infile:
                             if rid not in rid_msg:
                                 rid_msg[rid] = list(r["msg"])[0]
                         if "_at" in r:
-                            cur_rule.add_attr(r["_at"])
+                            a = normalize_attr(r["_at"])
+                            cur_rule.add_attr(a)
                         if "tag" in r:
                             for t in r["tag"]:
                                 cur_rule.add_tag(t)
@@ -151,6 +192,16 @@ r_comment = [
 ]
 l_upd.extend(r_comment)
 """
+
+wl = {}
+
+
+def add_wl(path, rid, at):
+    if path not in wl:
+        wl[path] = {}
+    if rid not in wl[path]:
+        wl[path][rid] = set()
+    wl[path][rid].add(at)
 
 
 for rid in sorted(rule_attr_list):
@@ -250,12 +301,6 @@ if wl:
 
 print("\n# >>>>> Excludes <<<<<<")
 print("# to be inserted in config file *after* ModSecurity rule file includes\n")
-
-
-def print_rid_msg(rd):
-    print("# RuleMatches id %s: %s; paranoia level %s" % (rd,
-                                                          rid_msg.get(rd, "__no_msg__"),
-                                                          get_paranoia_level(rd)))
 
 
 print("# Disabled secrules")
