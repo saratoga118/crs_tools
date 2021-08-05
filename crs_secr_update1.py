@@ -29,8 +29,13 @@ parser.add_argument('--id-start', type=int, default=12001,
 parser.add_argument('--base-path-tokens', type=int, default=1,
                     help='Number of directory path elements for per '
                     'directory rules')
+parser.add_argument("--skip-base-path-filtering", action="store_true",
+                    help="Turns off base path filtering, i.e. all uri matches encountered are"
+                         "taken literally")
 parser.add_argument("--force-white-listing", action="store_true",
                     help="Force the creation of per base path and per RID white listing rules")
+
+
 parser.add_argument('file', nargs='*',  help='file names')
 args = parser.parse_args()
 
@@ -42,6 +47,7 @@ logging.debug("min_arg_matches is %i" % args.min_arg_matches)
 logging.debug("min_uri_matches is %i" % args.min_uri_matches)
 logging.debug("base_path_tokens is %i" % args.base_path_tokens)
 logging.debug("force-white-listing is %s" % str(args.force_white_listing))
+logging.debug("skip-base-path-filtering is %s" % str(args.skip_base_path_filtering))
 logging.debug("id_start is %i" % args.id_start)
 
 ms_re = re.compile(r'\bModSecurity:\s+(.*)')
@@ -59,17 +65,35 @@ wl_rule_incr = 10
 p_re = re.compile(r"^((/[^/]+){1,%i})/" % args.base_path_tokens)
 
 
-def base_path(s):
-    m_p = p_re.search(s)
-    return m_p.group(1) if m_p else '/'
+def base_path(path_list):
+    res = set()
+    if not args.skip_base_path_filtering:
+        for p in path_list:
+            m_p = p_re.search(p)
+            res.add(m_p.group(1) if m_p else '/')
+    else:
+        res = set(path_list)
+    return res
 
 
 rule_attr_list: dict[Any, Any] = {}
 rid_msg = {}
 paranoia_level = {}
 
+
 def get_paranoia_level(pl):
     return paranoia_level.get(pl, "__undef__")
+
+
+wl = {}
+
+
+def add_wl(path, rid, at):
+    if path not in wl:
+        wl[path] = {}
+    if rid not in wl[path]:
+        wl[path][rid] = set()
+    wl[path][rid].add(at)
 
 
 ill_formed_notified = set()
@@ -128,16 +152,6 @@ r_comment = [
 l_upd.extend(r_comment)
 """
 
-wl = {}
-
-
-def add_wl(path, rid, at):
-    if path not in wl:
-        wl[path] = {}
-    if rid not in wl[path]:
-        wl[path][rid] = set()
-    wl[path][rid].add(at)
-
 
 for rid in sorted(rule_attr_list):
     attrs = rule_attr_list[rid].get_attrs()
@@ -152,7 +166,7 @@ for rid in sorted(rule_attr_list):
                         rule_update_dict.setdefault(rid, set())
                         rule_update_dict[rid].add(at)
                     else:
-                        bps = set([base_path(x) for x in rule_attr_list[rid].get_uris()])
+                        bps = base_path(rule_attr_list[rid].get_uris())
                         for b in bps:
                             add_wl(b, rid, at)
                 else:
@@ -170,8 +184,7 @@ for rid in sorted(rule_attr_list):
         logging.debug("max_rule_vars exceeded for rule id '%s' (%i matches): List of args %s" %
                       (rid, len(attrs), str(sorted(attrs))))
         base_path_hits = {}
-        for uri in rule_attr_list[rid].get_uris():
-            bp = base_path(uri)
+        for bp in base_path(rule_attr_list[rid].get_uris()):
             if bp not in base_path_hits:
                 base_path_hits[bp] = 0
             base_path_hits[bp] += 1
